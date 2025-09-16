@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "@clerk/nextjs";
-import { db } from "../../..//lib/firebase/client"; // <- resolves to src/lib/firebase/client
+import { useParams } from "next/navigation";              // ← NEW
+import { db } from "../../../lib/firebase/client";
 import { doc, onSnapshot } from "firebase/firestore";
 
 type Summary = {
@@ -20,16 +21,16 @@ type Summary = {
   winner?: string | null;
 };
 
-export default function GamePage({ params }: { params: { gameId: string } }) {
+export default function GamePage() {                      // ← no props
   const { isSignedIn, getToken, userId } = useAuth();
-  const { gameId } = params;
-
+  const { gameId } = useParams<{ gameId: string }>();     // ← read from hook
   const socketRef = useRef<Socket | null>(null);
-  const [status, setStatus] = useState<"idle"|"connecting"|"connected"|"disconnected">("idle");
+
+  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "disconnected">("idle");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [myHandCount, setMyHandCount] = useState<number>(0);
   const [log, setLog] = useState<string>("");
-
+  
   // Join WS room (authoritative, low-latency)
   useEffect(() => {
     if (!isSignedIn) { setStatus("idle"); return; }
@@ -42,7 +43,7 @@ export default function GamePage({ params }: { params: { gameId: string } }) {
 
       const s = io("http://localhost:3001", { auth: { clerkToken: token } });
       socketRef.current = s;
-      (window as any).__socket = s; // useful for console debugging
+      (window as Window).__socket = s; // useful for console debugging
 
       s.on("connect", () => setStatus("connected"));
       s.on("disconnect", () => setStatus("disconnected"));
@@ -73,22 +74,24 @@ export default function GamePage({ params }: { params: { gameId: string } }) {
   // Firestore listeners (durability / resync after refresh)
   useEffect(() => {
     if (!userId) return;
+
     // summary
     const off1 = onSnapshot(doc(db, "games", gameId), (snap) => {
-      if (snap.exists()) {
-        setSummary(snap.data() as Summary);
-        setLog((l) => `[fs] v${(snap.data() as any).version}\n` + l);
-      }
+      if (!snap.exists()) return;
+      const data = snap.data() as Summary;
+      setSummary(data);
+      setLog((l) => `[fs] v${data.version}\n` + l);
     });
+
     // my hand (size only for now)
     const off2 = onSnapshot(doc(db, "games", gameId, "hands", userId), (snap) => {
-      if (snap.exists()) {
-        const d = snap.data() as { cards: string[] };
-        setMyHandCount(Array.isArray(d.cards) ? d.cards.length : 0);
-      }
+      if (!snap.exists()) { setMyHandCount(0); return; }
+      const hand = snap.data() as { cards: string[] };
+      setMyHandCount(Array.isArray(hand.cards) ? hand.cards.length : 0);
     });
+
     return () => { off1(); off2(); };
-  }, [db, gameId, userId]);
+  }, [gameId, userId]);
 
   const turnOwner = useMemo(() => {
     if (!summary) return "—";

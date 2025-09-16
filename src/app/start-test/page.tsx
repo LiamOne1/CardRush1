@@ -40,7 +40,7 @@ export default function StartTestPage() {
 
       const s = io("http://localhost:3001", { auth: { clerkToken: token } });
       socketRef.current = s;
-      (window as any).__socket = s; // handy for console testing
+      (window as Window).__socket = s; // handy for console testing
 
       s.on("connect", () => setStatus("connected"));
       s.on("disconnect", () => setStatus("disconnected"));
